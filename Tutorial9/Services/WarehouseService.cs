@@ -5,30 +5,45 @@ namespace Tutorial9.Services;
 
 public class WarehouseService : IWarehouseService
 {
-    private const string ConnectionString = "Data Source=db-mssql;Initial Catalog=2019SBD;Integrated Security=True;Trust Server Certificate=True";
-    
-    public async Task<string> AddProduct(ProductDTO dto)
+    private const string ConnectionString =
+        "Data Source=db-mssql;Initial Catalog=2019SBD;Integrated Security=True;Trust Server Certificate=True";
+
+    public async Task<int> AddProduct(ProductDTO dto)
     {
         using (SqlConnection conn = new SqlConnection(ConnectionString))
         {
             await conn.OpenAsync();
-            
+
             if (!await CheckIfExists(conn, "Product", "IdProduct", dto.IdProduct))
-                return "Product not found";
+                return -1; //"Product not found";
             if (!await CheckIfExists(conn, "Warehouse", "IdWarehouse", dto.IdWarehouse))
-                return "Warehouse not found";
+                return -2; //"Warehouse not found";
 
-            int idOrder = await CheckOrderForProduct(conn, dto); 
+            int idOrder = await CheckOrderForProduct(conn, dto);
             if (idOrder == -1)
-                return "Bad Request - no order";
-            if (!await CheckIfExists(conn, "Product_Warehouse", "IdOrder", idOrder))
-                return "Order already fulfilled";
-            
-            UpdateOrderFulfillmentDate(conn, idOrder);
+                return -3; //"Bad Request - no order";
+            if (await CheckIfExists(conn, "Product_Warehouse", "IdOrder", idOrder))
+                return -4; //"Order already fulfilled";
 
+            await UpdateOrderFulfillmentDate(conn, idOrder);
+
+            int priceTotal = (int)(await GetProductPrice(conn, dto.IdProduct) * dto.Amount);
+
+            const string command =
+                "insert into Product_Warehouse (IdWarehouse, IdProduct, IdOrder, Amount, Price, CreatedAt) output inserted.IdProductWarehouse values (@IdWarehouse, @IdProduct, @IdOrder, @Amount, @Price, getdate())";
+
+            using (SqlCommand cmd = new SqlCommand(command, conn))
+            {
+                cmd.Parameters.AddWithValue("IdWarehouse", dto.IdWarehouse);
+                cmd.Parameters.AddWithValue("IdProduct", dto.IdProduct);
+                cmd.Parameters.AddWithValue("IdOrder", idOrder);
+                cmd.Parameters.AddWithValue("Amount", dto.Amount);
+                cmd.Parameters.AddWithValue("Price", priceTotal);
+
+                var res = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(res);
+            }
         }
-
-        return "OK";
     }
 
     private async Task<bool> CheckIfExists(SqlConnection conn, string table, string column, int id)
@@ -38,7 +53,7 @@ public class WarehouseService : IWarehouseService
         using (SqlCommand cmd = new SqlCommand(command, conn))
         {
             cmd.Parameters.AddWithValue("@Id", id);
-            
+
             var res = await cmd.ExecuteScalarAsync();
             return Convert.ToBoolean(res);
         }
@@ -46,28 +61,42 @@ public class WarehouseService : IWarehouseService
 
     private async Task<int> CheckOrderForProduct(SqlConnection conn, ProductDTO product)
     {
-        const string command = "select IdOrder from Order where IdProduct = @IdProduct and Amount = @Amount and CreatedAt < @CreatedAt";
+        const string command =
+            "select IdOrder from [Order] where IdProduct = @IdProduct and Amount = @Amount and CreatedAt < @CreatedAt";
 
         using (SqlCommand cmd = new SqlCommand(command, conn))
         {
             cmd.Parameters.AddWithValue("IdProduct", product.IdProduct);
             cmd.Parameters.AddWithValue("Amount", product.Amount);
             cmd.Parameters.AddWithValue("CreatedAt", product.CreatedAt);
-            
+
             var res = await cmd.ExecuteScalarAsync();
             return res == null ? -1 : Convert.ToInt32(res);
         }
     }
 
-    private async void UpdateOrderFulfillmentDate(SqlConnection conn, int idOrder)
+    private async Task<int> UpdateOrderFulfillmentDate(SqlConnection conn, int idOrder)
     {
-        const string command = "update Order set FulfilledAt = getdate() where IdOrder = @IdOrder";
+        const string command = "update [Order] set FulfilledAt = getdate() where IdOrder = @IdOrder";
 
         using (SqlCommand cmd = new SqlCommand(command, conn))
         {
             cmd.Parameters.AddWithValue("@IdOrder", idOrder);
 
-            cmd.ExecuteNonQuery();
+            return await cmd.ExecuteNonQueryAsync();
+        }
+    }
+
+    private async Task<decimal> GetProductPrice(SqlConnection conn, int idProduct)
+    {
+        const string command = "select Price from Product where IdProduct = @IdProduct";
+
+        using (SqlCommand cmd = new SqlCommand(command, conn))
+        {
+            cmd.Parameters.AddWithValue("IdProduct", idProduct);
+
+            var res = await cmd.ExecuteScalarAsync();
+            return Convert.ToDecimal(res);
         }
     }
 }

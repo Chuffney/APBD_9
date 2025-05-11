@@ -21,7 +21,20 @@ public class WarehouseController : ControllerBase
         if (dto.Amount <= 0)
             return BadRequest("Amount must be greater than zero");
 
-        string result = await _warehouseService.AddProduct(dto); //todo
-        return Ok();
+        int result = await _warehouseService.AddProduct(dto);
+
+        switch (result)
+        {
+            case -1:
+                return NotFound("Product not found");
+            case -2:
+                return NotFound("Warehouse not found");
+            case -3:
+                return BadRequest("No order for this product");
+            case -4:
+                return BadRequest("Order already fulfilled");
+            default:
+                return Ok(result);
+        }
     }
 }

@@ -27,23 +27,37 @@ public class WarehouseService : IWarehouseService
             if (await CheckIfExists(conn, "Product_Warehouse", "IdOrder", idOrder))
                 return -4; //"Order already fulfilled";
 
-            await UpdateOrderFulfillmentDate(conn, idOrder);
-
             int priceTotal = (int)(await GetProductPrice(conn, dto.IdProduct) * dto.Amount);
 
-            const string command =
-                "insert into Product_Warehouse (IdWarehouse, IdProduct, IdOrder, Amount, Price, CreatedAt) output inserted.IdProductWarehouse values (@IdWarehouse, @IdProduct, @IdOrder, @Amount, @Price, getdate())";
+            DbTransaction transaction = await conn.BeginTransactionAsync();
 
-            using (SqlCommand cmd = new SqlCommand(command, conn))
+            try
             {
-                cmd.Parameters.AddWithValue("IdWarehouse", dto.IdWarehouse);
-                cmd.Parameters.AddWithValue("IdProduct", dto.IdProduct);
-                cmd.Parameters.AddWithValue("IdOrder", idOrder);
-                cmd.Parameters.AddWithValue("Amount", dto.Amount);
-                cmd.Parameters.AddWithValue("Price", priceTotal);
+                await UpdateOrderFulfillmentDate(conn, transaction, idOrder);
 
-                var res = await cmd.ExecuteScalarAsync();
-                return Convert.ToInt32(res);
+                const string command =
+                    "insert into Product_Warehouse (IdWarehouse, IdProduct, IdOrder, Amount, Price, CreatedAt) output inserted.IdProductWarehouse values (@IdWarehouse, @IdProduct, @IdOrder, @Amount, @Price, getdate())";
+
+                using (SqlCommand cmd = new SqlCommand(command, conn))
+                {
+                    cmd.Transaction = transaction as SqlTransaction;
+
+                    cmd.Parameters.AddWithValue("IdWarehouse", dto.IdWarehouse);
+                    cmd.Parameters.AddWithValue("IdProduct", dto.IdProduct);
+                    cmd.Parameters.AddWithValue("IdOrder", idOrder);
+                    cmd.Parameters.AddWithValue("Amount", dto.Amount);
+                    cmd.Parameters.AddWithValue("Price", priceTotal);
+
+                    var res = await cmd.ExecuteScalarAsync();
+
+                    await transaction.CommitAsync();
+                    return Convert.ToInt32(res);
+                }
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
             }
         }
     }
@@ -77,12 +91,13 @@ public class WarehouseService : IWarehouseService
         }
     }
 
-    private async Task UpdateOrderFulfillmentDate(SqlConnection conn, int idOrder)
+    private async Task UpdateOrderFulfillmentDate(SqlConnection conn, DbTransaction transaction, int idOrder)
     {
         const string command = "update [Order] set FulfilledAt = getdate() where IdOrder = @IdOrder";
 
         using (SqlCommand cmd = new SqlCommand(command, conn))
         {
+            cmd.Transaction = transaction as SqlTransaction;
             cmd.Parameters.AddWithValue("@IdOrder", idOrder);
 
             await cmd.ExecuteNonQueryAsync();

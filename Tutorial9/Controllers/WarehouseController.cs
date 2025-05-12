@@ -9,12 +9,12 @@ namespace Tutorial9.Controllers;
 public class WarehouseController : ControllerBase
 {
     private IWarehouseService _warehouseService;
-    
+
     public WarehouseController(IWarehouseService warehouseService)
     {
         _warehouseService = warehouseService;
     }
-    
+
     [HttpPost]
     public async Task<IActionResult> AddProduct([FromBody] ProductDTO dto)
     {
@@ -36,5 +36,18 @@ public class WarehouseController : ControllerBase
             default:
                 return Ok(result);
         }
+    }
+
+    [HttpPost("proc")]
+    public async Task<IActionResult> AddProductProc([FromBody] ProductDTO dto)
+    {
+        if (dto.Amount <= 0)
+            return BadRequest("Amount must be greater than zero");
+
+        int result = await _warehouseService.AddProductProcedure(dto);
+
+        if (result < 0)
+            return BadRequest();
+        else return Ok(result);
     }
 }

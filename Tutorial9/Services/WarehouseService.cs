@@ -1,4 +1,6 @@
-﻿using Microsoft.Data.SqlClient;
+﻿using System.Data;
+using System.Data.Common;
+using Microsoft.Data.SqlClient;
 using Tutorial9.Model.DTO;
 
 namespace Tutorial9.Services;
@@ -75,7 +77,7 @@ public class WarehouseService : IWarehouseService
         }
     }
 
-    private async Task<int> UpdateOrderFulfillmentDate(SqlConnection conn, int idOrder)
+    private async Task UpdateOrderFulfillmentDate(SqlConnection conn, int idOrder)
     {
         const string command = "update [Order] set FulfilledAt = getdate() where IdOrder = @IdOrder";
 
@@ -83,7 +85,7 @@ public class WarehouseService : IWarehouseService
         {
             cmd.Parameters.AddWithValue("@IdOrder", idOrder);
 
-            return await cmd.ExecuteNonQueryAsync();
+            await cmd.ExecuteNonQueryAsync();
         }
     }
 
@@ -97,6 +99,33 @@ public class WarehouseService : IWarehouseService
 
             var res = await cmd.ExecuteScalarAsync();
             return Convert.ToDecimal(res);
+        }
+    }
+
+    public async Task<int> AddProductProcedure(ProductDTO dto)
+    {
+        const string procName = "AddProductToWarehouse";
+
+        try
+        {
+            using (SqlConnection conn = new SqlConnection(ConnectionString))
+            using (SqlCommand cmd = new SqlCommand(procName, conn))
+            {
+                await conn.OpenAsync();
+
+                cmd.CommandType = CommandType.StoredProcedure;
+                cmd.Parameters.AddWithValue("IdProduct", dto.IdProduct);
+                cmd.Parameters.AddWithValue("IdWarehouse", dto.IdWarehouse);
+                cmd.Parameters.AddWithValue("Amount", dto.Amount);
+                cmd.Parameters.AddWithValue("CreatedAt", dto.CreatedAt);
+
+                var res = await cmd.ExecuteScalarAsync();
+                return Convert.ToInt32(res);
+            }
+        }
+        catch (DbException)
+        {
+            return -1;
         }
     }
 }
